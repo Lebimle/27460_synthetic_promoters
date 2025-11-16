@@ -3,14 +3,13 @@ from Bio import SeqIO
 import os
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio import SeqIO
+
 import os
 import numpy as np
 import torch
 
 # function for extracting the upstream sequences
-def extract_upstream_sequences(gbk_path:str, upstream_length:int=1000, feature_types:list=("CDS")):
+def extract_upstream_sequences(gbk_path:str, upstream_length:int=1000, feature_types:list=["CDS"]):
     sequences = []
     ids = []
 
@@ -39,4 +38,17 @@ def one_hot_encode_sequence_to_tensor(seqs: str, seq_len: int) -> np.ndarray:
     tensor = torch.from_numpy(arr)
     return tensor
 
-def one_hot_encode_sequence_from_df(df: pd.DataFrame, seq_len: int) -> torch.Tensor:
+def one_hot_encode_df_to_tensor(df, seq_len, seq_col) -> torch.Tensor:
+    mapping = {'A':0, 'C':1, 'G':2, 'T':3}
+    seqs = df[seq_col].astype(str).tolist()
+    N = len(seqs)
+    arr = np.zeros((N, 4, seq_len), dtype = np.float32)
+
+    for i, seq in enumerate(seqs):
+        for j, nucleotide in enumerate(seq[:seq_len]):
+            if nucleotide in mapping:
+                arr[i, mapping[nucleotide], j] = 1.0
+
+    tensor = torch.from_numpy(arr)
+    return tensor
+
