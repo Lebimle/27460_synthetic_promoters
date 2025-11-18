@@ -52,3 +52,229 @@ def one_hot_encode_df_to_tensor(df, seq_len, seq_col) -> torch.Tensor:
     tensor = torch.from_numpy(arr)
     return tensor
 
+#stuff that was previously cluttering the notebook
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from math import ceil
+
+# neccessary libraries for training
+import torch 
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+def Initialize_weights(model):
+    for m in model.modules():
+        if isinstance(m,(nn.Conv1d,nn.ConvTranspose1d,nn.BatchNorm1d)):
+            nn.init.normal_(m.weight.data,0,0.02)
+
+class SelfAttentionLayer(nn.Module):
+  def __init__(self,feature_in,feature_out):
+    super(SelfAttentionLayer,self).__init__()
+    self.Q = nn.Conv1d(feature_in, feature_out, kernel_size = 1, stride = 1, padding = 'same')
+    self.K = nn.Conv1d(feature_in, feature_out, kernel_size = 1, stride = 1, padding = 'same')
+    self.V = nn.Conv1d(feature_in, feature_out, kernel_size = 1, stride = 1, padding = 'same')
+    self.softmax  = nn.Softmax(dim=1)
+  def forward(self,x):
+    Q = self.Q(x)
+    K = self.K(x)
+    V = self.V(x)
+    # avoid creating a new CPU tensor with torch.Tensor(...)
+    d = K.shape[0]
+    QK_d = (Q @ K.permute(0,2,1)) / (d ** 0.5)
+    prob = self.softmax(QK_d)
+    attention = prob @ V
+    return attention
+
+class Generator(nn.Module):
+    def __init__(self, noise_dim, gen_features, SelfAttentionLayer, out_channels=4, target_len=None):
+        super(Generator, self).__init__()
+        self.target_len = target_len
+        self.gen = nn.Sequential(
+            nn.utils.parametrizations.spectral_norm(
+                nn.ConvTranspose1d(noise_dim, gen_features, kernel_size=4, stride=2, padding=1)
+            ),
+            nn.LeakyReLU(0.2),
+            nn.utils.parametrizations.spectral_norm(
+                nn.ConvTranspose1d(gen_features, gen_features, kernel_size=4, stride=1, padding=1)
+            ),
+            nn.LeakyReLU(0.2),
+            nn.utils.parametrizations.spectral_norm(
+                nn.ConvTranspose1d(gen_features, gen_features*2, kernel_size=4, stride=1, padding=1)
+            ),
+            nn.LeakyReLU(0.2),
+            SelfAttentionLayer(gen_features*2, gen_features*2),
+            nn.utils.parametrizations.spectral_norm(
+                nn.ConvTranspose1d(gen_features*2, gen_features*2, kernel_size=4, stride=1, padding=1)
+            ),
+            nn.LeakyReLU(0.2),
+            nn.utils.parametrizations.spectral_norm(
+                nn.ConvTranspose1d(gen_features*2, gen_features*2, kernel_size=4, stride=1, padding=1)
+            ),
+            nn.LeakyReLU(0.2),
+            SelfAttentionLayer(gen_features*2, gen_features*2),
+            nn.utils.parametrizations.spectral_norm(
+                nn.ConvTranspose1d(gen_features*2, gen_features*3, kernel_size=4, stride=1, padding=1)
+            ),
+            nn.LeakyReLU(0.2),
+            nn.utils.parametrizations.spectral_norm(
+                nn.Conv1d(gen_features*3, gen_features*3, kernel_size=4, stride=1, padding=0)
+            ),
+            nn.LeakyReLU(0.2),
+            nn.utils.parametrizations.spectral_norm(
+                nn.Conv1d(gen_features*3, gen_features*3, kernel_size=4, stride=1, padding=1)
+            ),
+            nn.ReLU()
+        )
+        # mapping
+        self.to_bases = nn.Conv1d(gen_features*3, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        device = next(self.parameters()).device
+        x = x.to(device).type(torch.float32)
+        out = self.gen(x)
+        out = self.to_bases(out)  # now shape (B, 4, L_gen)
+        if self.target_len is not None and out.size(2) != self.target_len:
+            out = torch.nn.functional.interpolate(out, size=self.target_len, mode='linear', align_corners=False)
+        return out
+    
+#critic
+class Critic(nn.Module):
+    def __init__(self, in_channels, disc_features, SelfAttentionLayer):
+        super(Critic, self).__init__()
+        # clear channel progression: in_channels -> f -> 2f -> 4f -> 1
+        self.disc = nn.Sequential(
+            nn.Conv1d(in_channels, disc_features, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(0.2),
+
+            nn.Conv1d(disc_features, disc_features*2, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2),
+
+            SelfAttentionLayer(disc_features*2, disc_features*2),
+
+            nn.Conv1d(disc_features*2, disc_features*4, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2),
+
+            nn.Conv1d(disc_features*4, 1, kernel_size=3, stride=1, padding=1)
+        )
+
+    def forward(self, x):
+        device = next(self.parameters()).device
+        x = x.to(device).float()
+        out = self.disc(x)                  # shape (B, 1, L')
+        # reduce spatial dimension to a single score per sample
+        score = out.view(out.size(0), -1).mean(dim=1, keepdim=True)  # (B,1)
+        return score
+
+# gradient penalty
+def GradientPenalty(critic,real,fake,device):
+    Batch_size, seq_len,seq_dim = real.shape
+    alpha = torch.rand(Batch_size,1,1).repeat(1,seq_len,seq_dim).to(device)
+    interpolated_sequence = real * alpha + fake * (1 - alpha)
+    interpolated_sequence = interpolated_sequence.to(device)
+
+   
+    # Calculate critic scores
+    mixed_scores = critic(interpolated_sequence)
+
+    # Take the gradient of the scires with respect to the sequences
+    gradient = torch.autograd.grad(
+        inputs = interpolated_sequence,
+        outputs = mixed_scores,
+        grad_outputs = torch.ones_like(mixed_scores),
+        retain_graph= True,
+        create_graph= True,
+        )[0]
+    gradient = gradient.view(gradient.shape[0],-1)
+
+    gradient_norm = gradient.norm(2,dim = 1)
+    gradient_penalty = torch.mean((gradient_norm - 1)**2)
+    return gradient_penalty
+
+
+
+
+def generate_from_checkpoint(checkpoint_path="models/wgan_gp_10_epochs.pth", num_sequences=10, noise_dim=100,gen_features=64, batch_size=32, target_len=None, device=None, seed=None,temperature=1.0):
+    """
+    Load generator weights from checkpoint and produce nucleotide sequences.
+    - checkpoint_path: .pth saved by torch.save(...) in the notebook (must include "gen_state_dict")
+    - num_sequences: number of sequences to generate
+    - noise_dim / gen_features: must match the Generator used for training
+    - batch_size: generation batch size
+    - target_len: optional override for generated sequence length (keeps generator.target_len if set)
+    - device: "cpu" or "cuda" (auto-detected if None)
+    - seed: optional RNG seed for reproducibility
+    - temperature: softmax temperature (>0). 1.0 = default.
+    Returns: list of nucleotide strings
+    """
+    import torch
+    from math import ceil
+
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(device)
+
+    if seed is not None:
+        torch.manual_seed(seed)
+        if device.type == "cuda":
+            torch.cuda.manual_seed_all(seed)
+
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    if "gen_state_dict" not in ckpt:
+        raise KeyError(f"Checkpoint {checkpoint_path} does not contain 'gen_state_dict'")
+
+    # instantiate generator with same architecture used in notebook
+    gen = Generator(noise_dim, gen_features, SelfAttentionLayer, out_channels=4, target_len=target_len)
+    try:
+        gen.load_state_dict(ckpt["gen_state_dict"])
+    except RuntimeError as e:
+        # helpful error if hyperparams mismatch
+        raise RuntimeError(
+            "Failed to load generator state_dict — likely noise_dim/gen_features mismatch. "
+            "Ensure noise_dim and gen_features match training. Original error: " + str(e)
+        )
+
+    gen = gen.to(device)
+    gen.eval()
+
+    converter = ["A", "C", "G", "T"]
+    sequences = []
+    steps = ceil(num_sequences / batch_size)
+
+    with torch.no_grad():
+        for _ in range(steps):
+            cur_batch = min(batch_size, num_sequences - len(sequences))
+            noise = torch.randn(cur_batch, noise_dim, 1, device=device)
+            fake = gen(noise)  # shape (B, 4, L)
+            # temperature-scaled probabilities
+            if temperature != 1.0:
+                probs = torch.softmax(fake / float(temperature), dim=1)
+            else:
+                probs = torch.softmax(fake, dim=1)
+            indices = probs.argmax(dim=1)  # (B, L)
+            # convert each row to nucleotide string
+            for row in indices:
+                # row is shape (L,), values 0..3
+                seq = "".join(converter[int(i)] for i in row.cpu().tolist())
+                sequences.append(seq)
+                if len(sequences) >= num_sequences:
+                    break
+
+    return sequences
+
+__all__ = [
+    "extract_upstream_sequences",
+    "one_hot_encode_sequence_to_tensor",
+    "one_hot_encode_df_to_tensor",
+    "Initialize_weights",
+    "SelfAttentionLayer",
+    "Generator",
+    "Critic",
+    "GradientPenalty",
+    "generate_from_checkpoint",
+]
