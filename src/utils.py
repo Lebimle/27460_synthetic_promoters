@@ -1,13 +1,13 @@
 import pandas as pd
+import numpy as np
 from Bio import SeqIO
 import os
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
-
-import os
-import numpy as np
 import torch
+import os
 
+from math import ceil
 # function for extracting the upstream sequences
 def extract_upstream_sequences(gbk_path:str, upstream_length:int=1000, feature_types:list=["CDS"]):
     sequences = []
@@ -197,23 +197,16 @@ def GradientPenalty(critic,real,fake,device):
 
 
 
-
-def generate_from_checkpoint(checkpoint_path="models/wgan_gp_10_epochs.pth", num_sequences=10, noise_dim=100,gen_features=64, batch_size=32, target_len=None, device=None, seed=None,temperature=1.0):
-    """
-    Load generator weights from checkpoint and produce nucleotide sequences.
-    - checkpoint_path: .pth saved by torch.save(...) in the notebook (must include "gen_state_dict")
-    - num_sequences: number of sequences to generate
-    - noise_dim / gen_features: must match the Generator used for training
-    - batch_size: generation batch size
-    - target_len: optional override for generated sequence length (keeps generator.target_len if set)
-    - device: "cpu" or "cuda" (auto-detected if None)
-    - seed: optional RNG seed for reproducibility
-    - temperature: softmax temperature (>0). 1.0 = default.
-    Returns: list of nucleotide strings
-    """
-    import torch
-    from math import ceil
-
+def generate_from_checkpoint(checkpoint_path="models/wgan_gp_10_epochs.pth",
+                             num_sequences=10,
+                             noise_dim=100,
+                             gen_features=64,
+                             batch_size=32,
+                             target_len=None,
+                             device=None,
+                             seed=None,
+                             temperature=1.0,
+                             decode="sample"):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
@@ -233,7 +226,6 @@ def generate_from_checkpoint(checkpoint_path="models/wgan_gp_10_epochs.pth", num
     try:
         gen.load_state_dict(ckpt["gen_state_dict"])
     except RuntimeError as e:
-        # helpful error if hyperparams mismatch
         raise RuntimeError(
             "Failed to load generator state_dict — likely noise_dim/gen_features mismatch. "
             "Ensure noise_dim and gen_features match training. Original error: " + str(e)
@@ -250,22 +242,42 @@ def generate_from_checkpoint(checkpoint_path="models/wgan_gp_10_epochs.pth", num
         for _ in range(steps):
             cur_batch = min(batch_size, num_sequences - len(sequences))
             noise = torch.randn(cur_batch, noise_dim, 1, device=device)
-            fake = gen(noise)  # shape (B, 4, L)
-            # temperature-scaled probabilities
-            if temperature != 1.0:
-                probs = torch.softmax(fake / float(temperature), dim=1)
+            logits = gen(noise)  # shape (B, 4, L)
+
+            # compute probabilities (temperature applied)
+            probs = torch.softmax(logits / float(max(1e-8, temperature)), dim=1)  # (B,4,L)
+
+            if decode == "argmax": #most likely base per pos
+                indices = probs.argmax(dim=1)
             else:
-                probs = torch.softmax(fake, dim=1)
-            indices = probs.argmax(dim=1)  # (B, L)
-            # convert each row to nucleotide string
+                probs_perm = probs.permute(0, 2, 1).contiguous()  #better for different sequences
+                probs2d = probs_perm.view(-1, probs_perm.size(-1)).clamp(min=1e-9)
+                sampled = torch.multinomial(probs2d, num_samples=1).squeeze(1) 
+                indices = sampled.view(cur_batch, probs_perm.size(1)) 
             for row in indices:
-                # row is shape (L,), values 0..3
                 seq = "".join(converter[int(i)] for i in row.cpu().tolist())
                 sequences.append(seq)
                 if len(sequences) >= num_sequences:
                     break
-
     return sequences
+
+def ensure_length_match(fake, real):
+    if fake.size(2) != real.size(2):
+        fake = torch.nn.functional.interpolate(fake, size=real.size(2), mode='linear', align_corners=False)
+    return fake
+
+class WGANGPLossD:
+    @staticmethod
+    def Wasserstein(critic_real, critic_fake):
+        # critic_real, critic_fake are 1D tensors (batch of scores)
+        # WGAN critic loss = E[fake] - E[real]
+        return critic_fake.mean() - critic_real.mean()
+
+class WGANGPLossG:
+    @staticmethod
+    def Wasserstein(critic_fake):
+        # generator loss = -E[critic(fake)]
+        return -critic_fake.mean()
 
 __all__ = [
     "extract_upstream_sequences",
@@ -277,4 +289,7 @@ __all__ = [
     "Critic",
     "GradientPenalty",
     "generate_from_checkpoint",
+    "ensure_length_match",
+    "WGANGPLossD",
+    "WGANGPLossG",
 ]
