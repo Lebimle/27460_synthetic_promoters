@@ -1,3 +1,5 @@
+#rasmus' yndlingsfunktioner
+
 from Bio import SeqIO
 from pydna.dseqrecord import Dseqrecord
 

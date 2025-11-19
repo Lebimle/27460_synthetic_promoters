@@ -1,3 +1,5 @@
+#alex' yndlingsfunktioner
+
 import pandas as pd
 import numpy as np
 from Bio import SeqIO
@@ -278,6 +280,57 @@ class WGANGPLossG:
     def Wasserstein(critic_fake):
         # generator loss = -E[critic(fake)]
         return -critic_fake.mean()
+from math import ceil
+
+def generate_from_checkpoint(checkpoint_path="models/wgan_gp_10_epochs.pth", num_sequences=10, noise_dim=100, gen_features=64, batch_size=32, target_len=None, device=None, seed=None, temperature=1.0, decode="sample"):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu") #ensure it can run on cpu if no gpu though it will be extremely slow
+    else:
+        device = torch.device(device)
+
+    if seed is not None:
+        torch.manual_seed(seed)
+        if device.type == "cuda":
+            torch.cuda.manual_seed_all(seed)
+
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    if "gen_state_dict" not in ckpt:
+        raise KeyError(f"Checkpoint {checkpoint_path} does not contain 'gen_state_dict'")
+    # instantiate gen from notebok
+    gen = Generator(noise_dim, gen_features, SelfAttentionLayer, out_channels=4, target_len=target_len)
+    try:
+        gen.load_state_dict(ckpt["gen_state_dict"])
+    except RuntimeError as e:
+        raise RuntimeError(
+            "Failed to load generator state_dict — likely noise_dim/gen_features mismatch. "
+            "Ensure noise_dim and gen_features match training. Original error: " + str(e)
+        )
+    gen = gen.to(device)
+    gen.eval()
+    converter = ["A", "C", "G", "T"]
+    sequences = []
+    steps = ceil(num_sequences / batch_size)
+    with torch.no_grad():
+        for _ in range(steps):
+            cur_batch = min(batch_size, num_sequences - len(sequences))
+            noise = torch.randn(cur_batch, noise_dim, 1, device=device)
+            logits = gen(noise)  # shape (B, 4, L)
+            # compute probabilities (temperature applied)
+            probs = torch.softmax(logits / float(max(1e-8, temperature)), dim=1)  # (B,4,L)
+            if decode == "argmax": #most likely base per pos
+                indices = probs.argmax(dim=1)
+            else:
+                probs_perm = probs.permute(0, 2, 1).contiguous()  #better for different sequences
+                probs2d = probs_perm.view(-1, probs_perm.size(-1)).clamp(min=1e-9)
+                sampled = torch.multinomial(probs2d, num_samples=1).squeeze(1) 
+                indices = sampled.view(cur_batch, probs_perm.size(1)) 
+            for row in indices:
+                seq = "".join(converter[int(i)] for i in row.cpu().tolist())
+                sequences.append(seq)
+                if len(sequences) >= num_sequences:
+                    break
+    return sequences
+
 
 __all__ = [
     "extract_upstream_sequences",
