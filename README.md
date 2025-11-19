@@ -1,6 +1,36 @@
 # Exam project for 27460 Synthetic Biology Fall 2025 - Group 1
-This repo contains the code and process to generate synthetic promoters and constructs for in vivo assembly using teemi!
+This repository contains the code, workflow and data used to design and generate synthetic promoters and constructs for **in vivo assembly** in ***Coprinopsis cinerea*** using teemi! This work supports the project:
+> **"Expression of omega-3 DHA PUFA synthesis in non-conventional host: *Coprinopsis cinerea*."**
 
-In this project a library of promoters and terminators were created by cross reference of typically strong promoters, such as TEF1, in model organisms with C.Cinerea genome and 1000 base-pairs was collected from up and downstream segments of the coding sequence.
+### Summary
+In this project a library of candidate promoters and terminators were created by cross-referencing commonly used elements (e.g., TEF1) from model organisms with homologous regions in the *C.cinerea* genome. For each region, 1000 bp were extracted and analyzed as potential promoter and terminator sequences.
 
-For a comprehensive overview and complete description of project, please refer to the report: "Expression of omega-3 PUFA synthesis in non-conventinal host: Coprinopsis Cinerea".
+The repository includes:
+- **Notebooks** for:
+    - Synthetic promoter generation
+    - Promoter and terminator screening using dTomato
+    - Construct assembly and cloning
+- **Results** achieved from the design workflow
+- **Sequences** used in this project
+
+For the full methodology please refer to the report: **"Expression of omega-3 DHA PUFA synthesis in non-conventional host: *Coprinopsis cinerea*."**
+
+```text
+/data/                                  # Raw and processed sequence files  
+    /constructs                         # Finalized data for full insert
+    /generated_promoters                # Synthetically generated promoters
+    /promoter_terminator_library        # Full list of promoter and terminators, both gathered and generated
+    /insert_sequences                   # Used genetic sequences for inserts
+
+/src/                                   # Utility functions designed for notebook use  
+/notebooks/                             # Analysis and exploration  
+```
+### Usage
+To explore the workflow, **open the notebooks in the `/notebooks/` directory** and follow them in order:
+
+1. **Synthetic promoter generation**  
+2. **Combinatorial library and assembly**  
+3. **Construct assembly**
+
+### Authors
+(Group 1 - 27460 Synthetic Biology, DTU (Fall 2025))
