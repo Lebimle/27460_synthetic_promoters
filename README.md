@@ -1,6 +1,6 @@
 # Exam project for 27460 Synthetic Biology Fall 2025 - Group 1
 This repository contains the code, workflow and data used to design and generate synthetic promoters and constructs for **in vivo assembly** in ***Coprinopsis cinerea*** using teemi! This work supports the project:
-> **"Expression of omega-3 DHA PUFA synthesis in non-conventional host: *Coprinopsis cinerea*."**
+**"Expression of omega-3 DHA PUFA synthesis in non-conventional host: *Coprinopsis cinerea*."**
 
 ### Summary
 In this project a library of candidate promoters and terminators were created by cross-referencing commonly used elements (e.g., TEF1) from model organisms with homologous regions in the *C.cinerea* genome. For each region, 1000 bp were extracted and analyzed as potential promoter and terminator sequences.
@@ -33,4 +33,4 @@ To explore the workflow, **open the notebooks in the `/notebooks/` directory** a
 3. **Construct assembly**
 
 ### Authors
-(Group 1 - 27460 Synthetic Biology, DTU (Fall 2025))
+Alexander Videbæk and Rasmus Tøffner-Clausen - (Group 1 - 27460 Synthetic Biology, DTU (Fall 2025))
