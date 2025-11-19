@@ -1,5 +1,6 @@
 sequences/
 genome/
+data/
 models/
 
 # Byte-compiled / optimized / DLL files
