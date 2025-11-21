@@ -360,6 +360,29 @@ def parse_results(path:str):
     df = pd.DataFrame(rows, columns=["name", "score", "positions", "raw"]) #parse to frame
     return df
 
+def filter_fasta_by_names(fasta_in: str, names_df, out_fasta: str, name_col: str = "name", match_on_description: bool = False):
+    nums = []
+    for n in names_df[name_col].astype(str):
+        m = re.search(r"(\d+\.\d+)", n)
+        nums.append(m.group(1) if m else n.strip())
+
+    nums = set(nums)
+    selected = []
+    found = set()
+
+    for rec in SeqIO.parse(fasta_in, "fasta"):
+        rid = rec.id or ""
+        rdesc = rec.description or ""
+        for num in nums:
+            if num in rid or (match_on_description and num in rdesc):
+                selected.append(rec)
+                found.add(num)
+                break
+
+    SeqIO.write(selected, out_fasta, "fasta")
+    missing = sorted(list(nums - found))
+    return {"written": len(selected), "found": found, "missing": missing}
+
 
 __all__ = [
     "extract_upstream_sequences",
@@ -375,4 +398,5 @@ __all__ = [
     "WGANGPLossD",
     "WGANGPLossG",
     "parse_results",
+    "filter_fasta_by_names"
 ]
