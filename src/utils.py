@@ -8,6 +8,7 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 import torch
 import os
+import re
 
 from math import ceil
 # function for extracting the upstream sequences
@@ -331,6 +332,34 @@ def generate_from_checkpoint(checkpoint_path="models/wgan_gp_10_epochs.pth", num
                     break
     return sequences
 
+def parse_results(path:str):
+
+    text = open(path, "r", encoding="utf-8").read()
+
+    # capture each
+    block_re = re.compile(r"(synthetic_temp[_=](\d+\.\d+),.*?)(?=synthetic_temp[_=]|\Z)", re.S | re.I)
+    blocks = list(block_re.finditer(text))
+    rows = []
+    for m in blocks:
+        block_text = m.group(1)
+        temp = m.group(2)
+        if re.search(r"No promoter predicted", block_text, re.I):
+            score = float("nan")
+            positions = []
+        else:
+            matches = re.findall(r"^\s*(\d+)\s+([0-9]+\.[0-9]+)\s+(.+)$", block_text, re.M)
+            positions = [int(mm[0]) for mm in matches]
+            scores = [float(mm[1]) for mm in matches]
+            score = max(scores) if scores else float("nan")
+        rows.append({
+            "name": f"synthetic_temp_{temp}",
+            "score": score,
+            "positions": positions,
+            "raw": block_text.strip()
+        })
+    df = pd.DataFrame(rows, columns=["name", "score", "positions", "raw"]) #parse to frame
+    return df
+
 
 __all__ = [
     "extract_upstream_sequences",
@@ -345,4 +374,5 @@ __all__ = [
     "ensure_length_match",
     "WGANGPLossD",
     "WGANGPLossG",
+    "parse_results",
 ]
