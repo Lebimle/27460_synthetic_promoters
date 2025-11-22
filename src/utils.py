@@ -9,6 +9,7 @@ from Bio.Seq import Seq
 import torch
 import os
 import re
+import primer3
 
 from math import ceil
 # function for extracting the upstream sequences
@@ -383,6 +384,16 @@ def filter_fasta_by_names(fasta_in: str, names_df, out_fasta: str, name_col: str
     missing = sorted(list(nums - found))
     return {"written": len(selected), "found": found, "missing": missing}
 
+def design_primers(pth):
+    for record in SeqIO.parse(pth, "fasta"):
+        dna_seq = str(record.seq)
+        primers = primer3.bindings.design_primers({'SEQUENCE_TEMPLATE': dna_seq,}, {'PRIMER_OPT_SIZE': 20,'PRIMER_MIN_SIZE': 18, 'PRIMER_MAX_SIZE': 25, 'PRIMER_OPT_TM': 60.0, 'PRIMER_MIN_TM': 57.0, 'PRIMER_MAX_TM': 63.0, 'PRIMER_PAIR_MAX_DIFF_TM': 3.0, 'PRIMER_PRODUCT_SIZE_RANGE': [[900, 1100]],'SEQUENCE_INCLUDED_REGION': [0, len(dna_seq)],'SEQUENCE_PRIMER_PAIR_OK_REGION_LIST': [[0, 50, len(dna_seq)-50, 50]]})
+        print(f"Record: {record.id}")
+        print("up primer:", primers['PRIMER_LEFT_0_SEQUENCE'])
+        print("down primer:", primers['PRIMER_RIGHT_0_SEQUENCE'])
+        print("product size:", primers['PRIMER_PAIR_0_PRODUCT_SIZE'])
+        print("primr melting temp: ", primers['PRIMER_LEFT_0_TM'], primers['PRIMER_RIGHT_0_TM'])
+        print()
 
 __all__ = [
     "extract_upstream_sequences",
@@ -398,5 +409,6 @@ __all__ = [
     "WGANGPLossD",
     "WGANGPLossG",
     "parse_results",
-    "filter_fasta_by_names"
+    "filter_fasta_by_names",
+    "design_primers"
 ]
