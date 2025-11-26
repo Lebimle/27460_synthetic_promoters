@@ -10,11 +10,13 @@ In this project a library of candidate promoters and terminators were created by
 
 The repository includes:
 - **Notebooks** for:
-    - Synthetic promoter generation
+    - Promoter extraction and synthetic promoter generation
     - Promoter and terminator screening using dTomato
     - Construct assembly and cloning
-- **Results** achieved from the design workflow
-- **Sequences** used in this project
+    - Primer design for PCR amplification
+- **Data** containing the generated sequences
+- **src** containing helper functions and models used througout the notebooks 
+
 
 For the full methodology please refer to the report: **"Expression of omega-3 DHA PUFA synthesis in non-conventional host: *Coprinopsis cinerea*."**
 
@@ -40,6 +42,7 @@ To explore the workflow, **open the notebooks in the `/notebooks/` directory** a
 1. **Synthetic promoter generation**  
 2. **Combinatorial library and assembly**  
 3. **Construct assembly**
+3. **Primer design**
 
 ---
 
