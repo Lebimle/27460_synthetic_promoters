@@ -10,8 +10,8 @@ import torch
 import os
 import re
 import primer3
-
 from math import ceil
+
 # function for extracting the upstream sequences
 def extract_upstream_sequences(gbk_path:str, upstream_length:int=1000, feature_types:list=["CDS"]):
     sequences = []
@@ -407,6 +407,35 @@ def design_primers_latex_table(pth):
         print(f"\\textit{{{record.id}}} & Up & {up_tm} & 5'-{up_seq}-3' \\\\")
         print(f"& Down & {down_tm} & 5'-{down_seq}-3' \\\\")
 
+
+
+def create_end_primers(fasta_path, out_fasta=None, primer_len=30, first_offset=20, step=30, reverse_complement=False):
+    primers_by_record = {}
+
+    for idx, rec in enumerate(SeqIO.parse(fasta_path, "fasta")):
+        seq_len = len(rec.seq)
+        offset = first_offset + idx * step
+        start = seq_len - offset - primer_len
+        if start < 0:
+            start = 0 # clamp
+        end = start + primer_len
+        primer_seq = rec.seq[start:end]
+        if reverse_complement:
+            primer_seq = primer_seq.reverse_complement()
+        primers_by_record[rec.id] = [(offset, int(start), int(end), str(primer_seq))]
+
+    if out_fasta:
+        out_records = []
+        for rec_id, plist in primers_by_record.items():
+            for offset, start, end, pseq in plist:
+                rid = f"{rec_id}_off{offset}"
+                out_records.append(SeqRecord(Seq(pseq), id=rid, description=f"start={start};end={end};offset={offset}"))
+        out_dir = os.path.dirname(out_fasta)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        SeqIO.write(out_records, out_fasta, "fasta")
+    return primers_by_record
+
 __all__ = [
     "extract_upstream_sequences",
     "one_hot_encode_sequence_to_tensor",
@@ -422,5 +451,6 @@ __all__ = [
     "WGANGPLossG",
     "parse_results",
     "filter_fasta_by_names",
-    "design_primers"
+    "design_primers",
+    "create_end_primers"
 ]
