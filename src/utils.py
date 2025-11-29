@@ -11,6 +11,7 @@ import os
 import re
 import primer3
 from math import ceil
+import matplotlib.pyplot as plt
 
 # function for extracting the upstream sequences
 def extract_upstream_sequences(gbk_path:str, upstream_length:int=1000, feature_types:list=["CDS"]):
@@ -436,6 +437,109 @@ def create_end_primers(fasta_path, out_fasta=None, primer_len=30, first_offset=2
         SeqIO.write(out_records, out_fasta, "fasta")
     return primers_by_record
 
+def tensor_tile_for_ppt(
+    tensor,
+    seq_selector=slice(0, 4),
+    pos_slice=(0, 80),
+    channel_order="ACGT",
+    cmap="viridis",
+    out_png=None,
+    layout="horizontal",  # "horizontal" (default) or "stack"
+    return_decoded=False,
+):
+    """
+    Create a tiled image of parts of a one-hot tensor for PowerPoint.
+
+    - layout: "horizontal" (concatenate sequences side-by-side) or "stack" (stack sequences vertically)
+    - seq_selector: int, slice, list/ndarray of indices, or callable -> selected indices
+    - pos_slice: (start, end) positions to display
+    - return_decoded: also return decoded sequence strings for displayed slices
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import torch
+
+    if isinstance(tensor, torch.Tensor):
+        arr = tensor.detach().cpu().numpy()
+    else:
+        arr = np.asarray(tensor)
+    N, C, L = arr.shape
+    assert len(channel_order) == C, "channel_order length must equal channel count"
+
+    # resolve seq_selector -> list of indices
+    if isinstance(seq_selector, int):
+        indices = list(range(min(seq_selector, N)))
+    elif isinstance(seq_selector, slice):
+        indices = list(range(N))[seq_selector]
+    elif isinstance(seq_selector, (list, tuple, np.ndarray)):
+        indices = list(seq_selector)
+    elif callable(seq_selector):
+        indices = list(seq_selector(arr))
+    else:
+        raise TypeError("seq_selector must be int, slice, list/ndarray or callable")
+
+    indices = [i for i in indices if isinstance(i, int) and 0 <= i < N]
+    if len(indices) == 0:
+        raise ValueError("No valid sequence indices selected")
+
+    start = max(0, int(pos_slice[0]))
+    end = min(L, int(pos_slice[1]))
+    Ls = max(1, end - start)
+    m = len(indices)
+
+    # build tiles
+    tiles = [arr[i, :, start:end] for i in indices]  # each shape (C, Ls)
+
+    if layout == "horizontal":
+        big = np.concatenate(tiles, axis=1)  # shape (C, m*Ls)
+        fig, ax = plt.subplots(figsize=(max(6, m * 2), max(2, C * 0.5)))
+        im = ax.imshow(big, aspect="auto", cmap=cmap)
+        ax.set_yticks(np.arange(C))
+        ax.set_yticklabels(list(channel_order))
+        ax.set_xlabel("position (concatenated sequences)")
+        ax.set_title(f"One-hot channels for sequences {indices} (positions {start}:{end})")
+        # vertical dividers & labels
+        for i in range(1, m):
+            x = i * Ls - 0.5
+            ax.axvline(x, color="white", linewidth=2)
+        #for i, seq_idx in enumerate(indices):
+        #    cx = i * Ls + Ls / 2
+        #    ax.text(cx, -0.6, f"seq {seq_idx}", ha="center", va="bottom", fontsize=10, transform=ax.get_xaxis_transform())
+
+    elif layout == "stack":
+        # stack vertically: big shape (m*C, Ls)
+        big = np.vstack(tiles)
+        fig, ax = plt.subplots(figsize=(max(6, Ls / 20), max(2, m * C * 0.25)))
+        im = ax.imshow(big, aspect="auto", cmap=cmap)
+        # y ticks: repeat channel labels for each sequence
+        y_positions = np.arange(m * C)
+        y_labels = []
+        for seq_idx in indices:
+            for ch in channel_order:
+                y_labels.append(ch)
+        ax.set_yticks(y_positions)
+        ax.set_yticklabels(y_labels, fontsize=8)
+        ax.set_xlabel("position")
+        ax.set_title(f"Stacked one-hot channels for sequences {indices} (positions {start}:{end})")
+        # horizontal separators between sequences
+        for i in range(1, m):
+            y = i * C - 0.5
+            ax.axhline(y, color="white", linewidth=2)
+        # annotate sequence index left of each block
+        #for i, seq_idx in enumerate(indices):
+        #    y_mid = i * C + (C - 1) / 2.0
+        #    ax.text(-0.02 * Ls, y_mid, f"seq {seq_idx}", ha="right", va="center", fontsize=10, transform=ax.get_yaxis_transform())
+
+    else:
+        raise ValueError("layout must be 'horizontal' or 'stack'")
+
+    ax.set_xlim(-0.5, Ls - 0.5)
+    #plt.tight_layout(rect=[0, 0.03, 1, 1])
+    if out_png:
+        fig.savefig(out_png, dpi=300, bbox_inches="tight")
+
+    return fig
+
 __all__ = [
     "extract_upstream_sequences",
     "one_hot_encode_sequence_to_tensor",
@@ -452,5 +556,6 @@ __all__ = [
     "parse_results",
     "filter_fasta_by_names",
     "design_primers",
-    "create_end_primers"
+    "create_end_primers",
+    "tensor_tile_for_ppt",
 ]
